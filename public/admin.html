@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Viandas — Administración</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="topbar topbar-admin">
+  <div class="topbar-brand">Marechiaro <span style="font-family:'Nunito',sans-serif;opacity:0.75;font-size:0.8rem;margin-left:6px;font-weight:600;letter-spacing:0.05em">ADMIN</span></div>
+  <div class="topbar-user">
+    <span id="topbar-name"></span>
+    <button class="btn btn-secondary btn-sm" onclick="logout()">Salir</button>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<div class="container-wide">
+  <div class="tabs">
+    <button class="tab-btn active" onclick="showTab('pedidos')">📋 Pedidos</button>
+    <button class="tab-btn" onclick="showTab('menu')">🍽️ Menú</button>
+    <button class="tab-btn" onclick="showTab('usuarios')">👥 Usuarios</button>
+    <button class="tab-btn" onclick="showTab('config')">⚙️ Configuración</button>
+  </div>
+
+  <!-- TAB: PEDIDOS -->
+  <div id="tab-pedidos" class="tab-content active">
+    <div class="card">
+      <div class="flex justify-between items-center mb-2" style="flex-wrap:wrap;gap:12px">
+        <div class="card-title" style="margin:0">📋 Pedidos del día</div>
+        <div class="flex gap-2 items-center" style="flex-wrap:wrap">
+          <input type="date" id="orders-date" style="width:auto" onchange="loadOrders()">
+          <button class="btn btn-secondary btn-sm" onclick="loadOrders()">🔄 Actualizar</button>
+          <button class="btn btn-primary btn-sm" onclick="exportExcel()">⬇️ Excel</button>
+          <button class="btn btn-blue btn-sm" onclick="exportPDF()">📄 PDF</button>
+        </div>
+      </div>
+
+      <div id="orders-stats" class="stats-grid" style="margin-top:16px"></div>
+      <div id="orders-table-wrap" class="table-wrap">
+        <div class="empty-state"><div class="icon">📋</div><p>Cargando pedidos...</p></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📊 Resumen por plato</div>
+      <div id="summary-table-wrap" class="table-wrap">
+        <div class="empty-state" style="padding:20px"><p>—</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: MENÚ -->
+  <div id="tab-menu" class="tab-content">
+    <div class="card">
+      <div class="flex justify-between items-center mb-2" style="flex-wrap:wrap;gap:12px">
+        <div class="card-title" style="margin:0">🍽️ Items del menú</div>
+        <button class="btn btn-primary btn-sm" onclick="openMenuModal()">+ Nuevo item</button>
+      </div>
+      <div id="menu-table-wrap" class="table-wrap">
+        <div class="empty-state"><div class="icon">🍽️</div><p>Cargando...</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: USUARIOS -->
+  <div id="tab-usuarios" class="tab-content">
+    <div class="card">
+      <div class="flex justify-between items-center mb-2" style="flex-wrap:wrap;gap:12px">
+        <div class="card-title" style="margin:0">👥 Usuarios</div>
+        <button class="btn btn-primary btn-sm" onclick="openUserModal()">+ Nuevo usuario</button>
+      </div>
+      <div id="users-table-wrap" class="table-wrap">
+        <div class="empty-state"><div class="icon">👥</div><p>Cargando...</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: CONFIGURACIÓN -->
+  <div id="tab-config" class="tab-content">
+    <div class="card" style="max-width:400px">
+      <div class="card-title">⏰ Horario de corte</div>
+      <p class="text-sm text-gray mb-2">Después de este horario, los empleados no podrán realizar ni modificar pedidos.</p>
+      <div class="form-group">
+        <label>Hora de corte</label>
+        <input type="time" id="cutoff-input">
+      </div>
+      <button class="btn btn-primary" onclick="saveCutoff()">Guardar horario</button>
+      <div id="cutoff-status" class="mt-2"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: MENÚ ITEM -->
+<div class="modal-overlay" id="menu-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="menu-modal-title">Nuevo item</div>
+      <button class="modal-close" onclick="closeModal('menu-modal')">×</button>
+    </div>
+    <div id="menu-modal-alert" class="alert alert-error" style="display:none"></div>
+    <div class="form-group">
+      <label>Nombre *</label>
+      <input type="text" id="menu-name" placeholder="Ej: Milanesa con puré">
+    </div>
+    <div class="form-group">
+      <label>Descripción</label>
+      <textarea id="menu-desc" placeholder="Descripción del plato (opcional)"></textarea>
+    </div>
+    <div class="form-group">
+      <label>Categoría</label>
+      <input type="text" id="menu-category" placeholder="Principal, Acompañamiento, Postre...">
+    </div>
+    <div class="form-group" id="menu-active-group" style="display:none">
+      <label>
+        <input type="checkbox" id="menu-active" style="width:auto;margin-right:6px"> Item activo (visible en el menú)
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('menu-modal')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveMenuItem()" id="menu-save-btn">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: USUARIO -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="user-modal-title">Nuevo usuario</div>
+      <button class="modal-close" onclick="closeModal('user-modal')">×</button>
+    </div>
+    <div id="user-modal-alert" class="alert alert-error" style="display:none"></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Usuario *</label>
+        <input type="text" id="user-username" placeholder="nombre.apellido" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>Contraseña <span id="pass-hint" class="text-gray text-sm">(requerida)</span></label>
+        <input type="password" id="user-password" placeholder="Contraseña" autocomplete="new-password">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Nombre completo *</label>
+        <input type="text" id="user-name" placeholder="Juan García">
+      </div>
+      <div class="form-group">
+        <label>Empresa</label>
+        <input type="text" id="user-empresa" placeholder="Empresa S.A.">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Rol</label>
+        <select id="user-role">
+          <option value="employee">Empleado</option>
+          <option value="admin">Administrador</option>
+        </select>
+      </div>
+      <div class="form-group" id="user-active-group" style="display:none">
+        <label style="margin-top:28px">
+          <input type="checkbox" id="user-active" style="width:auto;margin-right:6px"> Usuario activo
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('user-modal')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveUser()" id="user-save-btn">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const token = localStorage.getItem('token');
+const user = JSON.parse(localStorage.getItem('user') || 'null');
+if (!token || !user || user.role !== 'admin') window.location.href = 'index.html';
+
+document.getElementById('topbar-name').textContent = user.name;
+
+let editingMenuId = null;
+let editingUserId = null;
+
+function logout() { localStorage.clear(); window.location.href = 'index.html'; }
+
+function apiHeaders() {
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+}
+
+function toast(msg, type = 'success') {
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.textContent = msg;
+  document.getElementById('toast-container').appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+function showTab(name) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById(`tab-${name}`).classList.add('active');
+  event.target.classList.add('active');
+  if (name === 'pedidos') loadOrders();
+  if (name === 'menu') loadMenu();
+  if (name === 'usuarios') loadUsers();
+  if (name === 'config') loadConfig();
+}
+
+// ---- PEDIDOS ----
+
+function getTodayDate() {
+  return new Date().toISOString().split('T')[0];
+}
+
+async function loadOrders() {
+  const dateInput = document.getElementById('orders-date');
+  if (!dateInput.value) dateInput.value = getTodayDate();
+  const date = dateInput.value;
+
+  try {
+    const res = await fetch(`/api/admin/orders?date=${date}`, { headers: apiHeaders() });
+    const orders = await res.json();
+
+    // Stats
+    const companies = new Set(orders.map(o => o.empresa));
+    const total = orders.reduce((s, o) => s + o.quantity, 0);
+    const uniquePeople = new Set(orders.map(o => o.user_name)).size;
+
+    document.getElementById('orders-stats').innerHTML = `
+      <div class="stat-card"><div class="num">${total}</div><div class="lbl">Raciones totales</div></div>
+      <div class="stat-card"><div class="num">${uniquePeople}</div><div class="lbl">Personas</div></div>
+      <div class="stat-card"><div class="num">${companies.size}</div><div class="lbl">Empresas</div></div>
+    `;
+
+    if (orders.length === 0) {
+      document.getElementById('orders-table-wrap').innerHTML = `<div class="empty-state"><div class="icon">📭</div><p>Sin pedidos para este día</p></div>`;
+      document.getElementById('summary-table-wrap').innerHTML = `<div class="empty-state" style="padding:20px"><p>Sin datos</p></div>`;
+      return;
+    }
+
+    // Tabla de pedidos
+    document.getElementById('orders-table-wrap').innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Empresa</th><th>Empleado</th><th>Plato</th><th>Categoría</th><th>Cant.</th><th>Notas</th>
+        </tr></thead>
+        <tbody>
+          ${orders.map(o => `<tr>
+            <td><strong>${o.empresa || '—'}</strong></td>
+            <td>${o.user_name}</td>
+            <td>${o.item_name}</td>
+            <td><span class="badge badge-blue">${o.category}</span></td>
+            <td><span class="badge badge-green">x${o.quantity}</span></td>
+            <td class="text-gray text-sm">${o.notes || '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+
+    // Resumen por plato
+    const summary = {};
+    orders.forEach(o => {
+      const key = `${o.category}||${o.item_name}`;
+      summary[key] = (summary[key] || 0) + o.quantity;
+    });
+
+    document.getElementById('summary-table-wrap').innerHTML = `
+      <table>
+        <thead><tr><th>Categoría</th><th>Plato</th><th>Total</th></tr></thead>
+        <tbody>
+          ${Object.entries(summary)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([key, total]) => {
+              const [cat, name] = key.split('||');
+              return `<tr>
+                <td><span class="badge badge-blue">${cat}</span></td>
+                <td><strong>${name}</strong></td>
+                <td><span class="badge badge-green" style="font-size:1rem;padding:4px 12px">${total}</span></td>
+              </tr>`;
+            }).join('')}
+          <tr style="font-weight:700;background:#F1F8E9">
+            <td colspan="2">TOTAL</td>
+            <td><span class="badge badge-green" style="font-size:1rem;padding:4px 12px">${total}</span></td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+  } catch (err) {
+    toast('Error al cargar pedidos: ' + err.message, 'error');
+  }
+}
+
+function exportExcel() {
+  const date = document.getElementById('orders-date').value || getTodayDate();
+  fetch(`/api/export/excel?date=${date}`, { headers: apiHeaders() })
+    .then(r => {
+      if (!r.ok) { toast('Error al exportar', 'error'); return; }
+      return r.blob();
+    }).then(blob => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `pedidos-${date}.xlsx`; a.click();
+      URL.revokeObjectURL(url);
+    });
+}
+
+function exportPDF() {
+  const date = document.getElementById('orders-date').value || getTodayDate();
+  fetch(`/api/export/pdf?date=${date}`, { headers: apiHeaders() })
+    .then(r => {
+      if (!r.ok) { toast('Error al exportar', 'error'); return; }
+      return r.blob();
+    }).then(blob => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `pedidos-${date}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    });
+}
+
+// ---- MENÚ ----
+
+async function loadMenu() {
+  try {
+    const res = await fetch('/api/menu/all', { headers: apiHeaders() });
+    const items = await res.json();
+    if (!items.length) {
+      document.getElementById('menu-table-wrap').innerHTML = `<div class="empty-state"><div class="icon">🍽️</div><p>Sin items en el menú</p></div>`;
+      return;
+    }
+    document.getElementById('menu-table-wrap').innerHTML = `
+      <table>
+        <thead><tr><th>Nombre</th><th>Descripción</th><th>Categoría</th><th>Estado</th><th>Acciones</th></tr></thead>
+        <tbody>
+          ${items.map(item => `<tr>
+            <td><strong>${item.name}</strong></td>
+            <td class="text-gray text-sm">${item.description || '—'}</td>
+            <td><span class="badge badge-blue">${item.category}</span></td>
+            <td><span class="badge ${item.active ? 'badge-green' : 'badge-gray'}">${item.active ? 'Activo' : 'Inactivo'}</span></td>
+            <td>
+              <div class="btn-group">
+                <button class="btn btn-secondary btn-sm" onclick='openMenuModal(${JSON.stringify(item)})'>✏️</button>
+                ${item.active ? `<button class="btn btn-danger btn-sm" onclick="deleteMenuItem(${item.id})">🗑️</button>` : ''}
+              </div>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch (err) {
+    toast('Error al cargar menú', 'error');
+  }
+}
+
+function openMenuModal(item = null) {
+  editingMenuId = item?.id || null;
+  document.getElementById('menu-modal-title').textContent = item ? 'Editar item' : 'Nuevo item';
+  document.getElementById('menu-name').value = item?.name || '';
+  document.getElementById('menu-desc').value = item?.description || '';
+  document.getElementById('menu-category').value = item?.category || 'Principal';
+  document.getElementById('menu-active').checked = item ? item.active : true;
+  document.getElementById('menu-active-group').style.display = item ? 'block' : 'none';
+  document.getElementById('menu-modal-alert').style.display = 'none';
+  document.getElementById('menu-modal').classList.add('open');
+}
+
+async function saveMenuItem() {
+  const name = document.getElementById('menu-name').value.trim();
+  if (!name) {
+    showModalAlert('menu-modal-alert', 'El nombre es requerido');
+    return;
+  }
+  const body = {
+    name,
+    description: document.getElementById('menu-desc').value.trim(),
+    category: document.getElementById('menu-category').value.trim() || 'Principal',
+    active: document.getElementById('menu-active').checked,
+  };
+  const btn = document.getElementById('menu-save-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch(editingMenuId ? `/api/menu/${editingMenuId}` : '/api/menu', {
+      method: editingMenuId ? 'PUT' : 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    toast(editingMenuId ? 'Item actualizado' : 'Item creado', 'success');
+    closeModal('menu-modal');
+    loadMenu();
+  } catch (err) {
+    showModalAlert('menu-modal-alert', err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteMenuItem(id) {
+  if (!confirm('¿Desactivar este item del menú?')) return;
+  try {
+    const res = await fetch(`/api/menu/${id}`, { method: 'DELETE', headers: apiHeaders() });
+    if (!res.ok) throw new Error();
+    toast('Item desactivado', 'success');
+    loadMenu();
+  } catch {
+    toast('Error al desactivar item', 'error');
+  }
+}
+
+// ---- USUARIOS ----
+
+async function loadUsers() {
+  try {
+    const res = await fetch('/api/admin/users', { headers: apiHeaders() });
+    const users = await res.json();
+    if (!users.length) {
+      document.getElementById('users-table-wrap').innerHTML = `<div class="empty-state"><div class="icon">👥</div><p>Sin usuarios</p></div>`;
+      return;
+    }
+    document.getElementById('users-table-wrap').innerHTML = `
+      <table>
+        <thead><tr><th>Usuario</th><th>Nombre</th><th>Empresa</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr></thead>
+        <tbody>
+          ${users.map(u => `<tr>
+            <td><code style="font-size:0.85rem">${u.username}</code></td>
+            <td><strong>${u.name}</strong></td>
+            <td>${u.empresa || '—'}</td>
+            <td><span class="badge ${u.role === 'admin' ? 'badge-blue' : 'badge-gray'}">${u.role === 'admin' ? 'Admin' : 'Empleado'}</span></td>
+            <td><span class="badge ${u.active ? 'badge-green' : 'badge-red'}">${u.active ? 'Activo' : 'Inactivo'}</span></td>
+            <td><button class="btn btn-secondary btn-sm" onclick='openUserModal(${JSON.stringify(u)})'>✏️ Editar</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch (err) {
+    toast('Error al cargar usuarios', 'error');
+  }
+}
+
+function openUserModal(u = null) {
+  editingUserId = u?.id || null;
+  document.getElementById('user-modal-title').textContent = u ? 'Editar usuario' : 'Nuevo usuario';
+  document.getElementById('user-username').value = u?.username || '';
+  document.getElementById('user-username').disabled = !!u;
+  document.getElementById('user-password').value = '';
+  document.getElementById('user-name').value = u?.name || '';
+  document.getElementById('user-empresa').value = u?.empresa || '';
+  document.getElementById('user-role').value = u?.role || 'employee';
+  document.getElementById('user-active').checked = u ? u.active : true;
+  document.getElementById('user-active-group').style.display = u ? 'block' : 'none';
+  document.getElementById('pass-hint').textContent = u ? '(dejar vacío para no cambiar)' : '(requerida)';
+  document.getElementById('user-modal-alert').style.display = 'none';
+  document.getElementById('user-modal').classList.add('open');
+}
+
+async function saveUser() {
+  const username = document.getElementById('user-username').value.trim();
+  const name = document.getElementById('user-name').value.trim();
+  const password = document.getElementById('user-password').value;
+  if (!username || !name) { showModalAlert('user-modal-alert', 'Usuario y nombre son requeridos'); return; }
+  if (!editingUserId && !password) { showModalAlert('user-modal-alert', 'La contraseña es requerida para nuevos usuarios'); return; }
+
+  const body = {
+    username,
+    name,
+    empresa: document.getElementById('user-empresa').value.trim(),
+    role: document.getElementById('user-role').value,
+    active: document.getElementById('user-active').checked,
+    ...(password && { password }),
+  };
+
+  const btn = document.getElementById('user-save-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch(editingUserId ? `/api/admin/users/${editingUserId}` : '/api/admin/users', {
+      method: editingUserId ? 'PUT' : 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    toast(editingUserId ? 'Usuario actualizado' : 'Usuario creado', 'success');
+    closeModal('user-modal');
+    loadUsers();
+  } catch (err) {
+    showModalAlert('user-modal-alert', err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---- CONFIG ----
+
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/settings/cutoff', { headers: apiHeaders() });
+    const { cutoff_time } = await res.json();
+    document.getElementById('cutoff-input').value = cutoff_time;
+  } catch (err) {
+    toast('Error al cargar configuración', 'error');
+  }
+}
+
+async function saveCutoff() {
+  const cutoff_time = document.getElementById('cutoff-input').value;
+  const status = document.getElementById('cutoff-status');
+  try {
+    const res = await fetch('/api/settings/cutoff', {
+      method: 'PUT',
+      headers: apiHeaders(),
+      body: JSON.stringify({ cutoff_time }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    status.innerHTML = '<div class="alert alert-success">Horario guardado correctamente</div>';
+    toast('Horario de corte actualizado', 'success');
+    setTimeout(() => status.innerHTML = '', 3000);
+  } catch (err) {
+    status.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+  }
+}
+
+// ---- UTILS ----
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+function showModalAlert(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.style.display = 'flex';
+}
+
+// Cerrar modal al hacer click fuera
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.classList.remove('open');
+  });
+});
+
+// Init
+document.getElementById('orders-date').value = getTodayDate();
+loadOrders();
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: marechiaro-viandas
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: 22.0.0
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false

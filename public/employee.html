@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Viandas — Hacer pedido</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-brand">Marechiaro</div>
+  <div class="topbar-user">
+    <span id="topbar-name"></span>
+    <button class="btn btn-secondary btn-sm" onclick="logout()">Salir</button>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<div class="container">
+
+  <!-- Selector de fecha -->
+  <div class="card" style="padding:16px 20px">
+    <div class="card-title" style="margin-bottom:10px">Elegí el día</div>
+    <div class="date-chips-wrap">
+      <div class="date-chips" id="date-chips">
+        <div class="empty-state" style="padding:8px 0"><p>Cargando fechas...</p></div>
+      </div>
+    </div>
+    <div id="cutoff-banner" class="cutoff-banner" style="display:none;margin-top:12px;margin-bottom:0"></div>
+  </div>
+
+  <!-- Pedido actual -->
+  <div id="current-order-card" class="card" style="display:none">
+    <div class="card-title">✅ Tu pedido para <span id="order-date-label"></span></div>
+    <ul class="order-list" id="current-order-list"></ul>
+    <div class="mt-4 btn-group" id="current-order-actions"></div>
+  </div>
+
+  <!-- Menú para pedir -->
+  <div id="menu-card" class="card" style="display:none">
+    <div class="card-title" id="menu-card-title">🍽️ Elegí tu menú para <span id="menu-date-label"></span></div>
+    <div id="menu-container"></div>
+    <hr class="divider">
+    <div class="flex justify-between items-center" style="flex-wrap:wrap; gap:12px">
+      <span class="text-sm text-gray" id="selection-summary"></span>
+      <button class="btn btn-primary" id="submit-btn" onclick="submitOrder()" disabled>
+        Confirmar pedido
+      </button>
+    </div>
+  </div>
+
+  <div id="loading" class="empty-state">
+    <div class="icon">⏳</div>
+    <p>Cargando...</p>
+  </div>
+
+</div>
+
+<script>
+const token = localStorage.getItem('token');
+const user = JSON.parse(localStorage.getItem('user') || 'null');
+if (!token || !user) window.location.href = 'index.html';
+
+document.getElementById('topbar-name').textContent = `${user.name}${user.empresa ? ' · ' + user.empresa : ''}`;
+
+let selectedItems = {};
+let selectedDate = null;
+let availableDates = [];
+let cachedMenu = [];
+
+function logout() { localStorage.clear(); window.location.href = 'index.html'; }
+function apiHeaders() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }; }
+
+function toast(msg, type = 'success') {
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.textContent = msg;
+  document.getElementById('toast-container').appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+function formatDateLabel(dateStr) {
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+async function init() {
+  try {
+    const [datesRes, menuRes] = await Promise.all([
+      fetch('/api/available-dates', { headers: apiHeaders() }),
+      fetch('/api/menu', { headers: apiHeaders() }),
+    ]);
+    const { dates, cutoff_time } = await datesRes.json();
+    cachedMenu = await menuRes.json();
+    availableDates = dates;
+
+    document.getElementById('loading').style.display = 'none';
+    renderDateChips(dates, cutoff_time);
+
+    // Seleccionar el primer día abierto
+    const firstOpen = dates.find(d => !d.closed);
+    if (firstOpen) selectDate(firstOpen.date, dates, cutoff_time);
+
+  } catch (err) {
+    document.getElementById('loading').innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+  }
+}
+
+function renderDateChips(dates, cutoff_time) {
+  const container = document.getElementById('date-chips');
+  container.innerHTML = dates.map(d => `
+    <button
+      class="date-chip ${d.closed ? 'date-chip-closed' : 'date-chip-open'}"
+      id="chip-${d.date}"
+      onclick="selectDate('${d.date}', null, '${cutoff_time}')"
+      ${d.closed ? 'disabled' : ''}
+      title="${d.closed ? 'Cerrado' : 'Disponible'}"
+    >
+      <span class="chip-day">${d.dayName}</span>
+      <span class="chip-num">${d.dayNum}</span>
+      <span class="chip-month">${d.month}</span>
+      ${d.closed ? '<span class="chip-closed-label">Cerrado</span>' : ''}
+    </button>
+  `).join('');
+}
+
+async function selectDate(date, dates, cutoff_time) {
+  selectedDate = date;
+  selectedItems = {};
+
+  // Marcar chip activo
+  document.querySelectorAll('.date-chip').forEach(c => c.classList.remove('active'));
+  const chip = document.getElementById(`chip-${date}`);
+  if (chip) chip.classList.add('active');
+
+  // Determinar si el día seleccionado está cerrado para mañana
+  const isMañana = (() => {
+    const tom = new Date(); tom.setDate(tom.getDate() + 1);
+    return date === tom.toISOString().split('T')[0];
+  })();
+
+  // Banner
+  const banner = document.getElementById('cutoff-banner');
+  if (isMañana && cutoff_time) {
+    const [h, m] = cutoff_time.split(':').map(Number);
+    const now = new Date();
+    const cutoffPassed = now.getHours() > h || (now.getHours() === h && now.getMinutes() >= m);
+    if (!cutoffPassed) {
+      banner.style.display = 'flex';
+      banner.className = 'cutoff-banner cutoff-open';
+      banner.innerHTML = `🟢 <span>Para pedir para mañana, tenés tiempo hasta las <strong>${cutoff_time}</strong>. <span id="countdown"></span></span>`;
+      startCountdown(h, m);
+    } else {
+      banner.style.display = 'none';
+    }
+  } else {
+    banner.style.display = 'none';
+  }
+
+  // Labels de fecha
+  const label = formatDateLabel(date);
+  const el1 = document.getElementById('order-date-label');
+  const el2 = document.getElementById('menu-date-label');
+  if (el1) el1.textContent = label;
+  if (el2) el2.textContent = label;
+
+  // Ocultar secciones
+  document.getElementById('current-order-card').style.display = 'none';
+  document.getElementById('menu-card').style.display = 'none';
+
+  // Cargar pedido existente para este día
+  try {
+    const res = await fetch(`/api/orders/my?date=${date}`, { headers: apiHeaders() });
+    const myOrders = await res.json();
+
+    if (myOrders.length > 0) renderCurrentOrder(myOrders);
+    renderMenu(cachedMenu, myOrders);
+  } catch (err) {
+    toast('Error al cargar pedidos: ' + err.message, 'error');
+  }
+}
+
+function renderCurrentOrder(orders) {
+  document.getElementById('current-order-card').style.display = 'block';
+  document.getElementById('current-order-list').innerHTML = orders.map(o => `
+    <li>
+      <span>
+        <strong>${o.item_name}</strong>
+        <span class="badge badge-gray" style="margin-left:6px">${o.category}</span>
+        ${o.notes ? `<span class="text-sm text-gray" style="display:block;margin-top:2px">Nota: ${o.notes}</span>` : ''}
+      </span>
+      <span class="badge badge-green">x${o.quantity}</span>
+    </li>
+  `).join('');
+
+  document.getElementById('current-order-actions').innerHTML = `
+    <button class="btn btn-secondary btn-sm" onclick="editOrder(${JSON.stringify(orders).replace(/"/g, '&quot;')})">✏️ Modificar</button>
+    <button class="btn btn-danger btn-sm" onclick="cancelOrder()">🗑️ Cancelar pedido</button>
+  `;
+}
+
+function renderMenu(menu, prefillOrders = []) {
+  document.getElementById('menu-card').style.display = 'block';
+
+  selectedItems = {};
+  prefillOrders.forEach(o => {
+    selectedItems[o.menu_item_id] = { menu_item_id: o.menu_item_id, quantity: o.quantity, notes: o.notes };
+  });
+
+  const categories = {};
+  menu.forEach(item => {
+    if (!categories[item.category]) categories[item.category] = [];
+    categories[item.category].push(item);
+  });
+
+  document.getElementById('menu-container').innerHTML = Object.entries(categories).map(([cat, items]) => `
+    <div class="menu-category">
+      <div class="menu-category-title">${cat}</div>
+      <div class="menu-items">
+        ${items.map(item => `
+          <div class="menu-item ${selectedItems[item.id] ? 'selected' : ''}" id="item-${item.id}" onclick="toggleItem(${item.id})">
+            <div class="menu-item-name">${item.name}</div>
+            ${item.description ? `<div class="menu-item-desc">${item.description}</div>` : ''}
+            <div class="menu-item-qty" onclick="event.stopPropagation()">
+              <button onclick="changeQty(${item.id}, -1)">−</button>
+              <span id="qty-${item.id}">${selectedItems[item.id]?.quantity || 1}</span>
+              <button onclick="changeQty(${item.id}, 1)">+</button>
+            </div>
+            <div class="mt-2" onclick="event.stopPropagation()">
+              <input type="text" placeholder="Nota (opcional)" value="${selectedItems[item.id]?.notes || ''}"
+                id="notes-${item.id}" oninput="updateNotes(${item.id}, this.value)"
+                style="padding:5px 8px;font-size:0.82rem;border-color:#ddd"
+                ${!selectedItems[item.id] ? 'disabled' : ''}>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  updateSelectionSummary();
+}
+
+function toggleItem(id) {
+  const el = document.getElementById(`item-${id}`);
+  if (selectedItems[id]) {
+    delete selectedItems[id];
+    el.classList.remove('selected');
+    document.getElementById(`notes-${id}`).disabled = true;
+    document.getElementById(`notes-${id}`).value = '';
+  } else {
+    const qty = parseInt(document.getElementById(`qty-${id}`).textContent) || 1;
+    selectedItems[id] = { menu_item_id: id, quantity: qty, notes: '' };
+    el.classList.add('selected');
+    document.getElementById(`notes-${id}`).disabled = false;
+  }
+  updateSelectionSummary();
+}
+
+function changeQty(id, delta) {
+  const span = document.getElementById(`qty-${id}`);
+  let qty = Math.min(10, Math.max(1, parseInt(span.textContent) + delta));
+  span.textContent = qty;
+  if (selectedItems[id]) selectedItems[id].quantity = qty;
+}
+
+function updateNotes(id, value) {
+  if (selectedItems[id]) selectedItems[id].notes = value;
+}
+
+function updateSelectionSummary() {
+  const count = Object.keys(selectedItems).length;
+  const total = Object.values(selectedItems).reduce((s, i) => s + (i.quantity || 1), 0);
+  document.getElementById('selection-summary').textContent =
+    count === 0 ? 'Ningún item seleccionado' : `${count} plato${count > 1 ? 's' : ''} · ${total} ración${total > 1 ? 'es' : ''}`;
+  document.getElementById('submit-btn').disabled = count === 0;
+}
+
+async function submitOrder() {
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Confirmando...';
+
+  const items = Object.values(selectedItems).map(i => ({
+    menu_item_id: i.menu_item_id,
+    quantity: i.quantity,
+    notes: i.notes || '',
+  }));
+
+  try {
+    const res = await fetch('/api/orders', {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify({ items, order_date: selectedDate }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    toast('Pedido confirmado!', 'success');
+    setTimeout(() => selectDate(selectedDate), 1000);
+  } catch (err) {
+    toast(err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Confirmar pedido';
+  }
+}
+
+function editOrder(orders) {
+  document.getElementById('current-order-card').style.display = 'none';
+  selectedItems = {};
+  orders.forEach(o => {
+    selectedItems[o.menu_item_id] = { menu_item_id: o.menu_item_id, quantity: o.quantity, notes: o.notes };
+  });
+  renderMenu(cachedMenu, orders);
+  document.getElementById('menu-card-title').innerHTML =
+    `✏️ Modificar pedido para <span id="menu-date-label">${formatDateLabel(selectedDate)}</span>`;
+}
+
+async function cancelOrder() {
+  if (!confirm(`¿Cancelar tu pedido para ${formatDateLabel(selectedDate)}?`)) return;
+  try {
+    const res = await fetch(`/api/orders/my?date=${selectedDate}`, { method: 'DELETE', headers: apiHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    toast('Pedido cancelado', 'success');
+    setTimeout(() => selectDate(selectedDate), 800);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function startCountdown(h, m) {
+  const interval = setInterval(() => {
+    const now = new Date();
+    const cutoff = new Date();
+    cutoff.setHours(h, m, 0, 0);
+    const diff = cutoff - now;
+    if (diff <= 0) { clearInterval(interval); location.reload(); return; }
+    const hh = Math.floor(diff / 3600000);
+    const mm = Math.floor((diff % 3600000) / 60000);
+    const ss = Math.floor((diff % 60000) / 1000);
+    const el = document.getElementById('countdown');
+    if (el) el.textContent = `(${hh > 0 ? hh + 'h ' : ''}${mm}m ${ss}s)`;
+  }, 1000);
+}
+
+init();
+</script>
+</body>
+</html>

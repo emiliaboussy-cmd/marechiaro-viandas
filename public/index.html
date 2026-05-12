@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Viandas — Ingresar</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="flower">🌸</div>
+        <h1>Marechiaro</h1>
+        <p>Sistema de pedidos de almuerzos</p>
+      </div>
+
+      <div id="alert" class="alert alert-error" style="display:none"></div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label for="username">Usuario</label>
+          <input type="text" id="username" placeholder="Tu usuario" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label for="password">Contraseña</label>
+          <input type="password" id="password" placeholder="Tu contraseña" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full" id="login-btn">
+          Ingresar
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // Redirigir si ya está logueado
+    const token = localStorage.getItem('token');
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    if (token && user) {
+      window.location.href = user.role === 'admin' ? 'admin.html' : 'employee.html';
+    }
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('login-btn');
+      const alert = document.getElementById('alert');
+      alert.style.display = 'none';
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Ingresando...';
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: document.getElementById('username').value.trim(),
+            password: document.getElementById('password').value,
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error al ingresar');
+
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+
+        window.location.href = data.user.role === 'admin' ? 'admin.html' : 'employee.html';
+      } catch (err) {
+        alert.textContent = err.message;
+        alert.style.display = 'flex';
+        btn.disabled = false;
+        btn.textContent = 'Ingresar';
+      }
+    });
+  </script>
+</body>
+</html>
