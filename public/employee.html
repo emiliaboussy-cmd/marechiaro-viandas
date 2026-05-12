@@ -174,8 +174,11 @@ async function selectDate(date, dates, cutoff_time) {
     const res = await fetch(`/api/orders/my?date=${date}`, { headers: apiHeaders() });
     const myOrders = await res.json();
 
-    if (myOrders.length > 0) renderCurrentOrder(myOrders);
-    renderMenu(cachedMenu, myOrders);
+    if (myOrders.length > 0) {
+      renderCurrentOrder(myOrders);
+    } else {
+      renderMenu(cachedMenu, []);
+    }
   } catch (err) {
     toast('Error al cargar pedidos: ' + err.message, 'error');
   }
@@ -201,6 +204,10 @@ function renderCurrentOrder(orders) {
 }
 
 function renderMenu(menu, prefillOrders = []) {
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = 'Confirmar pedido';
+  btn.disabled = true;
+
   document.getElementById('menu-card').style.display = 'block';
 
   selectedItems = {};
